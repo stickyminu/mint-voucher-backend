@@ -1,64 +1,59 @@
 require("dotenv").config();
 const express = require("express");
-const cors = require("cors");
 const { ethers } = require("ethers");
+const fs = require("fs");
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+app.use(express.json()); // Middleware to parse JSON requests
 
-const PORT = process.env.PORT || 5000;
+// Load environment variables
+const RPC_URL = process.env.RPC_URL;
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 
-// Blockchain Configuration
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, require("./contractABI.json"), wallet);
+// Load contract ABI
+const contractABI = JSON.parse(fs.readFileSync("contractABI.json", "utf8"));
 
-// Grant Role Function
-async function grantMinterRole(userAddress) {
-    const minterRole = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
-    const tx = await contract.grantRole(minterRole, userAddress);
-    await tx.wait();
-    console.log(`Granted MINTER_ROLE to: ${userAddress}`);
-}
+// Define constants
+const MINTER_ROLE = "0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6";
 
-// Revoke Role Function
-async function revokeMinterRole(userAddress) {
-    const minterRole = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
-    const tx = await contract.revokeRole(minterRole, userAddress);
-    await tx.wait();
-    console.log(`Revoked MINTER_ROLE from: ${userAddress}`);
-}
+// Initialize provider, wallet, and contract
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, wallet);
 
-// Mint NFT Function
-async function mintNFT(userAddress, tokenId) {
-    await grantMinterRole(userAddress);
-    
-    const tx = await contract.mint(userAddress, tokenId);
-    await tx.wait();
-    console.log(`Minted token ${tokenId} to ${userAddress}`);
-
-    await revokeMinterRole(userAddress);
-}
-
-// API Route for Minting
+// Route: Mint NFT
 app.post("/mint", async (req, res) => {
-    const { userAddress, tokenId } = req.body;
-
-    if (!userAddress || !tokenId) {
-        return res.status(400).json({ error: "Missing userAddress or tokenId" });
+    const { userAddress } = req.body;
+    if (!userAddress) {
+        return res.status(400).json({ success: false, message: "User address is required!" });
     }
 
     try {
-        await mintNFT(userAddress, tokenId);
+        console.log(`Granting MINTER_ROLE to ${userAddress}...`);
+        let tx = await contract.grantRole(MINTER_ROLE, userAddress);
+        await tx.wait();
+        console.log(`✅ MINTER_ROLE granted to ${userAddress}`);
+
+        console.log(`Minting NFT to ${userAddress}...`);
+        tx = await contract.mint(userAddress);
+        await tx.wait();
+        console.log(`✅ NFT minted successfully for ${userAddress}`);
+
+        console.log(`Revoking MINTER_ROLE from ${userAddress}...`);
+        tx = await contract.revokeRole(MINTER_ROLE, userAddress);
+        await tx.wait();
+        console.log(`✅ MINTER_ROLE revoked from ${userAddress}`);
+
         res.json({ success: true, message: "NFT minted successfully!" });
     } catch (error) {
-        console.error("Minting error:", error);
-        res.status(500).json({ error: "Minting failed" });
+        console.error("❌ Minting error:", error);
+        res.status(500).json({ success: false, message: `Minting error: ${error.message}` });
     }
 });
 
-// Start Server
+// Start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
