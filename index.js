@@ -10,6 +10,7 @@ app.use(express.json()); // Middleware to parse JSON requests
 const RPC_URL = process.env.RPC_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
+const API_KEY = process.env.API_KEY; // Secret API Key
 
 // Load contract ABI
 const contractABI = JSON.parse(fs.readFileSync("contractABI.json", "utf8"));
@@ -22,8 +23,17 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, wallet);
 
-// Route: Mint NFT
-app.post("/mint", async (req, res) => {
+// Middleware: Check API Key
+const verifyApiKey = (req, res, next) => {
+    const providedApiKey = req.headers["x-api-key"];
+    if (!providedApiKey || providedApiKey !== API_KEY) {
+        return res.status(403).json({ success: false, message: "Unauthorized: Invalid API Key!" });
+    }
+    next();
+};
+
+// Route: Mint NFT (Protected by API Key)
+app.post("/mint", verifyApiKey, async (req, res) => {
     const { userAddress } = req.body;
     if (!userAddress) {
         return res.status(400).json({ success: false, message: "User address is required!" });
